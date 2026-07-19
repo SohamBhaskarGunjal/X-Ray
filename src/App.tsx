@@ -41,6 +41,7 @@ export default function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const fpsIntervalRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
+  const gestureActiveRef = useRef<boolean>(false);
 
   // Quad Corners state [BL, BR, TL, TR] in [0, 1] WebGL coordinates
   const [corners, setCorners] = useState<number[][]>([
@@ -275,47 +276,55 @@ export default function App() {
               };
             });
 
-            // Dual-Hand mode logic
+            // Determine if the toggle gesture is triggered (fingers coming together / pinching)
+            let isTriggered = false;
             if (hands.length >= 2) {
-              // Sort hands horizontally by their physical mirrored X coordinate (1.0 - wrist.x) to maintain stable screen sides
               const sorted = [...hands].sort((a, b) => (1.0 - a.wrist.x) - (1.0 - b.wrist.x));
               const leftHand = sorted[0];
               const rightHand = sorted[1];
 
-              // If both hands pinch -> Activate X-ray mode!
-              if (leftHand.isPinching && rightHand.isPinching) {
-                setTrackerMode('xray');
-                
-                // Corners for X-Ray Mode: Fixed horizontal strip (15% height) centered between pinches
-                const leftPinch = leftHand.pinchPoint;
-                const rightPinch = rightHand.pinchPoint;
-                
-                const avgY = (leftPinch.y + rightPinch.y) / 2;
-                // Convert to WebGL bottom-up Y coordinate
-                const webglY = 1 - avgY;
+              // 1. Both hands pinching
+              const bothPinching = leftHand.isPinching && rightHand.isPinching;
 
-                // WebGL coordinates: mirror X to align with scale-x-[-1] mirrored view
-                setCorners([
-                  [1.0 - leftPinch.x, webglY - 0.075],  // BL
-                  [1.0 - rightPinch.x, webglY - 0.075], // BR
-                  [1.0 - leftPinch.x, webglY + 0.075],  // TL
-                  [1.0 - rightPinch.x, webglY + 0.075],  // TR
-                ]);
-              } else {
-                setTrackerMode('particle');
+              // 2. Index tips of both hands coming very close to each other
+              const indexDist = Math.sqrt(
+                Math.pow(leftHand.indexTip.x - rightHand.indexTip.x, 2) +
+                Math.pow(leftHand.indexTip.y - rightHand.indexTip.y, 2) +
+                Math.pow(leftHand.indexTip.z - rightHand.indexTip.z, 2)
+              );
+              const indexTouching = indexDist < 0.12;
 
-                // Corners for Particle Mode: stretches between each hand's index-tip and thumb-bottom
-                // WebGL coordinates: mirror X to align with scale-x-[-1] mirrored view
-                setCorners([
-                  [1.0 - leftHand.thumbBase.x, 1.0 - leftHand.thumbBase.y],  // BL
-                  [1.0 - rightHand.thumbBase.x, 1.0 - rightHand.thumbBase.y], // BR
-                  [1.0 - leftHand.indexTip.x, 1.0 - leftHand.indexTip.y],    // TL
-                  [1.0 - rightHand.indexTip.x, 1.0 - rightHand.indexTip.y],   // TR
-                ]);
+              isTriggered = bothPinching || indexTouching;
+            } else if (hands.length === 1) {
+              // 3. Single hand pinching
+              isTriggered = hands[0].isPinching;
+            }
+
+            // Leading-edge detection to toggle trackerMode
+            if (isTriggered) {
+              if (!gestureActiveRef.current) {
+                setTrackerMode((prev) => (prev === 'xray' ? 'particle' : 'xray'));
+                gestureActiveRef.current = true;
               }
             } else {
+              gestureActiveRef.current = false;
+            }
+
+            // Dual-Hand mode logic
+            if (hands.length >= 2) {
+              const sorted = [...hands].sort((a, b) => (1.0 - a.wrist.x) - (1.0 - b.wrist.x));
+              const leftHand = sorted[0];
+              const rightHand = sorted[1];
+
+              // Stretches between each hand's index-tip and thumb-bottom (unified for both xray and particle modes)
+              setCorners([
+                [1.0 - leftHand.thumbBase.x, 1.0 - leftHand.thumbBase.y],  // BL
+                [1.0 - rightHand.thumbBase.x, 1.0 - rightHand.thumbBase.y], // BR
+                [1.0 - leftHand.indexTip.x, 1.0 - leftHand.indexTip.y],    // TL
+                [1.0 - rightHand.indexTip.x, 1.0 - rightHand.indexTip.y],   // TR
+              ]);
+            } else {
               // Single-Hand fallback: stretches around the single active hand splay
-              setTrackerMode('particle');
               const singleHand = hands[0];
               
               setCorners([
