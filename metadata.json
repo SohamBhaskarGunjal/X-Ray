@@ -1,0 +1,6 @@
+{
+  "name": "X-Ray Hand Tracker",
+  "description": "Live hand-tracking visual effects app using MediaPipe and Three.js shader screens.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
